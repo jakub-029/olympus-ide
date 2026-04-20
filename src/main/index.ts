@@ -1,5 +1,6 @@
 import { app, BrowserWindow, shell } from 'electron'
 import { join } from 'node:path'
+import { registerTerminalIpc } from './ipc/terminal'
 
 const isDev = !app.isPackaged
 
@@ -36,6 +37,7 @@ function createWindow(): void {
 }
 
 app.whenReady().then(() => {
+  registerTerminalIpc()
   createWindow()
 
   app.on('activate', () => {

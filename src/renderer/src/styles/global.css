@@ -34,3 +34,11 @@ input { font-family: var(--font-ui); }
 .titlebar-no-drag {
   -webkit-app-region: no-drag;
 }
+
+.olympus-terminal .xterm {
+  height: 100%;
+  padding: 0;
+}
+.olympus-terminal .xterm-viewport::-webkit-scrollbar-thumb {
+  background: var(--smoke);
+}

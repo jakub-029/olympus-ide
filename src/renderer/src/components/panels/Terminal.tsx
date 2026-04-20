@@ -1,58 +1,121 @@
-import { useState } from 'react'
+import { useEffect, useRef } from 'react'
+import { Terminal as XTerm } from '@xterm/xterm'
+import { FitAddon } from '@xterm/addon-fit'
+import '@xterm/xterm/css/xterm.css'
 import { Icon } from '../primitives/Icon'
-
-type Line =
-  | { kind: 'prompt'; host: string; path: string; cmd: string }
-  | { kind: 'out'; text: string; color?: string }
 
 interface Props {
   onClose: () => void
 }
 
-const INITIAL_LINES: Line[] = [
-  { kind: 'prompt', host: 'olympus-core', path: '~/src', cmd: 'npm run dev' },
-  { kind: 'out', text: '> olympus-core@0.1.0 dev' },
-  { kind: 'out', text: '> vite --port 5173' },
-  { kind: 'out', text: '' },
-  { kind: 'out', text: '  VITE v5.2.0  ready in 284 ms', color: 'var(--success)' },
-  { kind: 'out', text: '' },
-  { kind: 'out', text: '  ➜  Local:   http://localhost:5173/' },
-  { kind: 'out', text: '  ➜  Network: use --host to expose' },
-  { kind: 'prompt', host: 'olympus-core', path: '~/src', cmd: '' }
-]
-
 const TABS = ['Problems', 'Output', 'Terminal', 'Ports']
 
+// Olympus palette — xterm ANSI colors mapped to Thunder theme.
+const XTERM_THEME = {
+  background: '#0B0E13',
+  foreground: '#E8E6DF',
+  cursor: '#C79A4B',
+  cursorAccent: '#0B0E13',
+  selectionBackground: 'rgba(199,154,75,0.25)',
+  black: '#0B0E13',
+  red: '#C56B5C',
+  green: '#7FA07F',
+  yellow: '#D4A656',
+  blue: '#6A8FB5',
+  magenta: '#BFA78A',
+  cyan: '#8AA8C7',
+  white: '#E8E6DF',
+  brightBlack: '#5D6472',
+  brightRed: '#D8806E',
+  brightGreen: '#97BB97',
+  brightYellow: '#E6BD6D',
+  brightBlue: '#8AA8C7',
+  brightMagenta: '#D4BDA2',
+  brightCyan: '#A8BFDA',
+  brightWhite: '#F2F0EA'
+}
+
 export function Terminal({ onClose }: Props) {
-  const [lines, setLines] = useState<Line[]>(INITIAL_LINES)
-  const [input, setInput] = useState('')
+  const hostRef = useRef<HTMLDivElement | null>(null)
+  const termRef = useRef<XTerm | null>(null)
+  const fitRef = useRef<FitAddon | null>(null)
+  const ptyIdRef = useRef<string | null>(null)
 
-  const run = (cmd: string) => {
-    if (cmd === 'clear') {
-      setLines([{ kind: 'prompt', host: 'olympus-core', path: '~/src', cmd: '' }])
-      return
+  useEffect(() => {
+    if (!hostRef.current) return
+
+    const term = new XTerm({
+      fontFamily: '"JetBrains Mono", "SF Mono", Menlo, Consolas, monospace',
+      fontSize: 12,
+      lineHeight: 1.4,
+      cursorBlink: true,
+      cursorStyle: 'block',
+      allowProposedApi: true,
+      theme: XTERM_THEME,
+      scrollback: 5000
+    })
+
+    const fit = new FitAddon()
+    term.loadAddon(fit)
+    term.open(hostRef.current)
+    fit.fit()
+
+    termRef.current = term
+    fitRef.current = fit
+
+    let disposeData: (() => void) | null = null
+    let disposeExit: (() => void) | null = null
+    let cancelled = false
+
+    const cols = term.cols
+    const rows = term.rows
+
+    window.olympus.terminal
+      .spawn({ cols, rows })
+      .then(({ id }) => {
+        if (cancelled) {
+          window.olympus.terminal.kill(id)
+          return
+        }
+        ptyIdRef.current = id
+        disposeData = window.olympus.terminal.onData(id, (data) => term.write(data))
+        disposeExit = window.olympus.terminal.onExit(id, () => {
+          term.writeln('\r\n\x1b[2m[process exited]\x1b[0m')
+        })
+        term.onData((data) => window.olympus.terminal.write(id, data))
+      })
+      .catch((err: unknown) => {
+        const msg = err instanceof Error ? err.message : String(err)
+        term.writeln(`\x1b[31mFailed to spawn shell: ${msg}\x1b[0m`)
+      })
+
+    const ro = new ResizeObserver(() => {
+      if (!fitRef.current || !termRef.current || !ptyIdRef.current) return
+      try {
+        fitRef.current.fit()
+        window.olympus.terminal.resize(ptyIdRef.current, termRef.current.cols, termRef.current.rows)
+      } catch {
+        /* the host may be detaching */
+      }
+    })
+    ro.observe(hostRef.current)
+
+    const onFocus = () => term.focus()
+    hostRef.current.addEventListener('click', onFocus)
+
+    return () => {
+      cancelled = true
+      ro.disconnect()
+      hostRef.current?.removeEventListener('click', onFocus)
+      disposeData?.()
+      disposeExit?.()
+      if (ptyIdRef.current) window.olympus.terminal.kill(ptyIdRef.current)
+      term.dispose()
+      termRef.current = null
+      fitRef.current = null
+      ptyIdRef.current = null
     }
-
-    const out: Line[] = [{ kind: 'prompt', host: 'olympus-core', path: '~/src', cmd }]
-
-    if (cmd === 'ls') {
-      out.push({ kind: 'out', text: 'src/  package.json  README.md  tsconfig.json' })
-    } else if (cmd === 'pwd') {
-      out.push({ kind: 'out', text: '/Users/jakub/olympus-core' })
-    } else if (cmd.startsWith('echo ')) {
-      out.push({ kind: 'out', text: cmd.slice(5) })
-    } else if (cmd === 'git status') {
-      out.push({ kind: 'out', text: 'On branch main' })
-      out.push({ kind: 'out', text: 'Changes not staged for commit:' })
-      out.push({ kind: 'out', text: '  modified:   src/core/summit.ts', color: 'var(--warn)' })
-      out.push({ kind: 'out', text: '  modified:   src/core/peak.ts', color: 'var(--warn)' })
-    } else if (cmd) {
-      out.push({ kind: 'out', text: `zsh: command not found: ${cmd}`, color: 'var(--danger)' })
-    }
-
-    out.push({ kind: 'prompt', host: 'olympus-core', path: '~/src', cmd: '' })
-    setLines((prev) => [...prev.slice(0, -1), ...out])
-  }
+  }, [])
 
   return (
     <div
@@ -60,7 +123,7 @@ export function Terminal({ onClose }: Props) {
         background: 'var(--surface-app)',
         display: 'flex',
         flexDirection: 'column',
-        height: 220,
+        height: 260,
         borderTop: '1px solid var(--fog)',
         flexShrink: 0
       }}
@@ -97,6 +160,7 @@ export function Terminal({ onClose }: Props) {
         <div style={{ flex: 1 }} />
         <button
           onClick={onClose}
+          aria-label="Close terminal"
           style={{
             background: 'transparent',
             border: 'none',
@@ -108,54 +172,7 @@ export function Terminal({ onClose }: Props) {
           <Icon name="x" size={14} />
         </button>
       </div>
-      <div
-        style={{
-          flex: 1,
-          overflow: 'auto',
-          padding: '8px 12px',
-          fontFamily: 'var(--font-mono)',
-          fontSize: 12,
-          lineHeight: 1.55
-        }}
-      >
-        {lines.map((l, i) =>
-          l.kind === 'prompt' ? (
-            <div key={i} style={{ color: 'var(--fg-1)', display: 'flex', gap: 6 }}>
-              <span style={{ color: 'var(--success)' }}>{l.host}</span>
-              <span style={{ color: 'var(--fg-3)' }}>{l.path}</span>
-              <span style={{ color: 'var(--brass-base)' }}>$</span>
-              {i === lines.length - 1 ? (
-                <input
-                  value={input}
-                  onChange={(e) => setInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      run(input)
-                      setInput('')
-                    }
-                  }}
-                  autoFocus
-                  style={{
-                    flex: 1,
-                    background: 'transparent',
-                    border: 'none',
-                    outline: 'none',
-                    color: 'var(--fg-1)',
-                    fontFamily: 'var(--font-mono)',
-                    fontSize: 12
-                  }}
-                />
-              ) : (
-                <span>{l.cmd}</span>
-              )}
-            </div>
-          ) : (
-            <div key={i} style={{ color: l.color ?? 'var(--fg-2)', whiteSpace: 'pre' }}>
-              {l.text}
-            </div>
-          )
-        )}
-      </div>
+      <div ref={hostRef} className="olympus-terminal" style={{ flex: 1, padding: '6px 8px', overflow: 'hidden' }} />
     </div>
   )
 }
