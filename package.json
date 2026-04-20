@@ -1,0 +1,31 @@
+{
+  "name": "olympus-ide",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A desktop IDE with an integrated terminal, code editor, file explorer, and embedded browser preview.",
+  "main": "./out/main/index.js",
+  "author": "jakub-029",
+  "license": "MIT",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "start": "electron-vite preview",
+    "typecheck:node": "tsc --noEmit -p tsconfig.node.json",
+    "typecheck:web": "tsc --noEmit -p tsconfig.web.json",
+    "typecheck": "npm run typecheck:node && npm run typecheck:web"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.2",
+    "@types/react": "^18.3.3",
+    "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "^4.3.1",
+    "electron": "^31.0.1",
+    "electron-vite": "^2.3.0",
+    "typescript": "^5.4.5",
+    "vite": "^5.3.1"
+  }
+}
